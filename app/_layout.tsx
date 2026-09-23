@@ -1,6 +1,5 @@
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import SplashScreen from "../components/SplashScreen";
 import { AuthProvider, useAuth } from "../context/auth";
@@ -61,14 +60,12 @@ function RootLayoutNav() {
   );
 }
 
-const styles = StyleSheet.create({});
-
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
         <GroupProvider>
-          <Stack />
+          <RootLayoutNav />
         </GroupProvider>
       </AuthProvider>
     </SafeAreaProvider>

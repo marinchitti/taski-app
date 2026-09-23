@@ -34,8 +34,6 @@ export default function HomeScreen() {
 
     // Tasks follow the chosen team everywhere in the app.
     const refreshTasks = async () => {
-      Text.defaultProps = Text.defaultProps || {};
-      Text.defaultProps.allowFontScaling = false;
       const { data, error } = await loadTasks(user.id, activeTeamId);
       if (!error) setTasks(data);
     };
@@ -113,7 +111,6 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
           </View>
-          <View style={styles.placeholder} />
         </View>
 
         {/* Floating Stat Counters */}
