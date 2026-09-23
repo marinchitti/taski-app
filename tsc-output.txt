@@ -1,0 +1,19 @@
+TypeScript compilation: CLEAN (0 errors)
+ESLint: CLEAN (0 errors, 0 warnings)
+Web build: CLEAN (19 routes bundled)
+
+Errors fixed:
+1. components/SplashScreen.tsx — removed duplicate/misplaced imports inside interface,
+   removed unused ExpoSplashScreen/useColorScheme imports, fixed boxShadow -> shadow*.
+2. app/(tabs)/calendar.tsx — added normalizeDueDate import from lib/stats;
+   fixed subscribeToTasks arg order (teamId vs callback); removed unused useGroup import.
+3. app/(tabs)/index.tsx — removed broken mid-function Text import + defaultProps hack;
+   replaced undefined styles.placeholder with inline flex spacer.
+4. app/(tabs)/stats.tsx — fixed subscribeToTasks arg order; removed unused useGroup import.
+5. app/notifications.tsx — fixed subscribeToTasks arg order.
+6. app/profile.tsx — added missing activeGroup destructuring from useGroup().
+7. app/_layout.tsx — wired up RootLayoutNav (auth guard) instead of bare <Stack />;
+   removed unused View/useGroup/StyleSheet/styles.
+8. app/(tabs)/team.tsx — added missing activeTeamId dependency to useEffect.
+9. lib/tasks.ts — fixed loadTasksByTeam return-type mismatch by normalizing error to Error | null.
+

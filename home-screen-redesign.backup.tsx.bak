@@ -1,0 +1,957 @@
+import { useFocusEffect, useRouter } from "expo-router";
+import React from "react";
+import {
+  Image,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "../../components/icons";
+import { useAuth } from "../../context/auth";
+import { loadTasks, subscribeToTasks, Task } from "../../lib/tasks";
+import {
+  DUE_SOON_DAYS,
+  formatLongDate,
+  getCompletedTasks,
+  getCompletionRate,
+  getDueSoonTasks,
+  getOpenTasks,
+  getOverdueTasks,
+  getUpcomingTasks,
+  normalizeDueDate,
+} from "../../lib/stats";
+import { getUserTeam } from "../../lib/team";
+
+function getGreeting(now: Date = new Date()): string {
+  const hour = now.getHours();
+  if (hour < 5) return "Good night";
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function formatToday(now: Date = new Date()): string {
+  return now.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function AttentionRow({ task }: { task: Task }) {
+  const router = useRouter();
+  const overdue = getOverdueTasks([task]).length > 0;
+  return (
+    <TouchableOpacity
+      style={styles.attentionRow}
+      onPress={() => router.push("/tasks")}
+    >
+      <View
+        style={[
+          styles.attentionIcon,
+          { backgroundColor: overdue ? "#FEE2E2" : "#FEF3C7" },
+        ]}
+      >
+        <Ionicons
+          name={overdue ? "alert-circle-outline" : "time-outline"}
+          size={16}
+          color={overdue ? "#DC2626" : "#D97706"}
+        />
+      </View>
+      <View style={styles.upcomingTaskInfo}>
+        <Text style={styles.upcomingTaskTitle} numberOfLines={1}>
+          {task.title}
+        </Text>
+        <Text style={styles.upcomingTaskDate}>
+          {overdue ? "Overdue • " : "Due soon • "}
+          {formatLongDate(task.dueDate)}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+    </TouchableOpacity>
+  );
+}
+
+export default function HomeScreen() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [tasks, setTasks] = React.useState<Task[]>([]);
+  const [teamName, setTeamName] = React.useState<string>("...");
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const displayName = user?.user_metadata?.displayName as string | undefined;
+  const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;
+  const userInitial = (displayName?.trim() || user?.email || "U")
+    .charAt(0)
+    .toUpperCase();
+
+  const refreshTasks = React.useCallback(async () => {
+    if (!user) return;
+    const { data, error } = await loadTasks(user.id);
+    if (!error) setTasks(data);
+  }, [user]);
+
+  const refreshTeam = React.useCallback(async () => {
+    if (!user) return;
+    const team = await getUserTeam(user.id);
+    setTeamName(team);
+  }, [user]);
+
+  React.useEffect(() => {
+    if (!user) return;
+
+    let cancelled = false;
+
+    const loadHeader = async () => {
+      const [{ data, error }, team] = await Promise.all([
+        loadTasks(user.id),
+        getUserTeam(user.id),
+      ]);
+      if (cancelled) return;
+      if (!error) setTasks(data);
+      setTeamName(team);
+    };
+
+    void loadHeader();
+
+    return subscribeToTasks(user.id, () => void refreshTasks());
+  }, [user, refreshTasks]);
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([refreshTasks(), refreshTeam()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshTasks, refreshTeam]);
+
+  // Refresh the team label every time Home regains focus (e.g. after the
+  // user creates a team on the Profile screen). Task rows stay fresh via
+  // the realtime subscription above, so focus only refetches the header.
+  useFocusEffect(
+    React.useCallback(() => {
+      void refreshTeam();
+    }, [refreshTeam]),
+  );
+
+  // Read straight from the shared stats layer so Home, Tasks, Calendar and
+  // the Statistics tab can never disagree about these numbers.
+  const completedCount = getCompletedTasks(tasks).length;
+  const openTasks = getOpenTasks(tasks);
+  const overdueTasks = getOverdueTasks(tasks);
+  const overdueCount = overdueTasks.length;
+  const dueSoonTasks = getDueSoonTasks(tasks, DUE_SOON_DAYS);
+  const attentionCount = overdueCount + dueSoonTasks.length;
+  const progress = getCompletionRate(tasks);
+  const upcomingTasks = getUpcomingTasks(tasks, 4);
+  const attentionTasks = [...overdueTasks, ...dueSoonTasks].slice(0, 3);
+  const todayKey = normalizeDueDate(new Date().toISOString().slice(0, 10));
+  const dueTodayCount = openTasks.filter(
+    (task) => normalizeDueDate(task.dueDate) === todayKey,
+  ).length;
+  const recentDone = getCompletedTasks(tasks).slice(-3).reverse();
+
+  const greeting = getGreeting();
+  const todayLabel = formatToday();
+  const firstName = (displayName || user?.email?.split("@")[0] || "there")
+    .trim()
+    .split(" ")[0];
+
+  return (
+    <RNSafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void onRefresh()}
+            tintColor="#6366F1"
+          />
+        }
+      >
+        {/* Greeting header — who is here, what day it is, shortcuts */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.userInfo}
+            onPress={() => router.push("/profile")}
+            accessibilityLabel="Open profile"
+          >
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{userInitial}</Text>
+              </View>
+            )}
+            <View style={styles.headerCopy}>
+              <Text style={styles.greetingText}>
+                {greeting}, {firstName}
+              </Text>
+              <Text style={styles.dateText}>{todayLabel}</Text>
+              <View style={styles.teamRow}>
+                <Ionicons name="people-outline" size={12} color="#94A3B8" />
+                <Text style={styles.roleText}>{teamName.toUpperCase()}</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          <View style={styles.headerIcons}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => router.push("/notifications")}
+              accessibilityLabel="Open notifications"
+            >
+              <Ionicons
+                name="notifications-outline"
+                size={18}
+                color="#FFFFFF"
+              />
+              {attentionCount > 0 ? <View style={styles.dot} /> : null}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => router.push("/settings")}
+              accessibilityLabel="Open settings"
+            >
+              <Ionicons name="settings-outline" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.body}>
+          {/* Today's focus hero */}
+          <View style={styles.heroCard}>
+            <View style={styles.heroTop}>
+              <View style={styles.heroCopy}>
+                <Text style={styles.heroEyebrow}>TODAY&apos;S FOCUS</Text>
+                <Text style={styles.heroTitle}>
+                  {dueTodayCount > 0
+                    ? `${dueTodayCount} due today`
+                    : attentionCount > 0
+                      ? `${attentionCount} need${attentionCount === 1 ? "s" : ""} attention`
+                      : openTasks.length > 0
+                        ? `${openTasks.length} open`
+                        : "All clear"}
+                </Text>
+                <Text style={styles.heroSubtitle}>
+                  {tasks.length === 0
+                    ? "Create your first task to get started."
+                    : overdueCount > 0
+                      ? `${overdueCount} overdue — tackle ${overdueCount === 1 ? "it" : "them"} first.`
+                      : dueSoonTasks.length > 0
+                        ? `${dueSoonTasks.length} due in the next ${DUE_SOON_DAYS} days.`
+                        : completedCount > 0
+                          ? `${completedCount} done — nice momentum.`
+                          : "Plan your day from the board."}
+                </Text>
+              </View>
+              <View style={styles.heroRing}>
+                <Text style={styles.heroRingValue}>{progress}%</Text>
+                <Text style={styles.heroRingLabel}>DONE</Text>
+              </View>
+            </View>
+            <View style={styles.heroTrack}>
+              <View style={[styles.heroFill, { width: `${progress}%` }]} />
+            </View>
+            <View style={styles.heroActions}>
+              <TouchableOpacity
+                style={styles.heroPrimary}
+                onPress={() => router.push("/tasks")}
+                accessibilityLabel="Open task board"
+              >
+                <Ionicons name="checkbox" size={16} color="#FFFFFF" />
+                <Text style={styles.heroPrimaryText}>Open board</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.heroSecondary}
+                onPress={() => router.push("/calendar")}
+                accessibilityLabel="Open calendar"
+              >
+                <Ionicons name="calendar" size={16} color="#6366F1" />
+                <Text style={styles.heroSecondaryText}>Calendar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* At-a-glance counters */}
+          <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <View style={[styles.statIcon, { backgroundColor: "#EEF2FF" }]}>
+                <Ionicons name="list-outline" size={18} color="#6366F1" />
+              </View>
+              <Text style={[styles.statNumber, { color: "#6366F1" }]}>
+                {openTasks.length}
+              </Text>
+              <Text style={styles.statLabel}>OPEN</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={[styles.statIcon, { backgroundColor: "#FEF3C7" }]}>
+                <Ionicons name="time-outline" size={18} color="#D97706" />
+              </View>
+              <Text style={[styles.statNumber, { color: "#0F172A" }]}>
+                {dueTodayCount}
+              </Text>
+              <Text style={styles.statLabel}>DUE TODAY</Text>
+            </View>
+            <View style={styles.statCard}>
+              <View style={[styles.statIcon, { backgroundColor: "#FEE2E2" }]}>
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={18}
+                  color="#DC2626"
+                />
+              </View>
+              <Text
+                style={[
+                  styles.statNumber,
+                  { color: overdueCount > 0 ? "#DC2626" : "#0F172A" },
+                ]}
+              >
+                {overdueCount}
+              </Text>
+              <Text style={styles.statLabel}>OVERDUE</Text>
+            </View>
+          </View>
+
+          {/* Quick actions */}
+          <View style={styles.quickRow}>
+            <TouchableOpacity
+              style={styles.quickAction}
+              onPress={() => router.push("/tasks")}
+              accessibilityLabel="Go to tasks"
+            >
+              <View style={[styles.quickIcon, { backgroundColor: "#EEF2FF" }]}>
+                <Ionicons name="checkbox" size={18} color="#6366F1" />
+              </View>
+              <Text style={styles.quickLabel}>Tasks</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.quickAction}
+              onPress={() => router.push("/calendar")}
+              accessibilityLabel="Go to calendar"
+            >
+              <View style={[styles.quickIcon, { backgroundColor: "#ECFDF5" }]}>
+                <Ionicons name="calendar" size={18} color="#059669" />
+              </View>
+              <Text style={styles.quickLabel}>Calendar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.quickAction}
+              onPress={() => router.push("/team")}
+              accessibilityLabel="Go to team"
+            >
+              <View style={[styles.quickIcon, { backgroundColor: "#FFF7ED" }]}>
+                <Ionicons name="people" size={18} color="#EA580C" />
+              </View>
+              <Text style={styles.quickLabel}>Team</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.quickAction}
+              onPress={() => router.push("/stats")}
+              accessibilityLabel="Go to insights"
+            >
+              <View style={[styles.quickIcon, { backgroundColor: "#F5F3FF" }]}>
+                <Ionicons name="bar-chart" size={18} color="#7C3AED" />
+              </View>
+              <Text style={styles.quickLabel}>Insights</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Needs attention */}
+          {attentionTasks.length > 0 ? (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View>
+                  <Text style={styles.cardTitle}>Needs attention</Text>
+                  <Text style={styles.cardSubtitle}>
+                    OVERDUE + DUE IN {DUE_SOON_DAYS} DAYS
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.viewAllBtn}
+                  onPress={() => router.push("/tasks")}
+                >
+                  <Text style={styles.viewAllText}>VIEW ALL</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#6366F1" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.upcomingList}>
+                {attentionTasks.map((task) => (
+                  <AttentionRow key={task.id} task={task} />
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {/* Upcoming Tasks Section */}
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View>
+                <Text style={styles.cardTitle}>Up next</Text>
+                <Text style={styles.cardSubtitle}>SOONEST DUE DATES</Text>
+              </View>
+            <TouchableOpacity
+              style={styles.viewAllBtn}
+              onPress={() => router.push("/tasks")}
+            >
+              <Text style={styles.viewAllText}>VIEW ALL</Text>
+              <Ionicons name="chevron-forward" size={14} color="#6366F1" />
+            </TouchableOpacity>
+          </View>
+          {upcomingTasks.length > 0 ? (
+            <View style={styles.upcomingList}>
+              {upcomingTasks.map((task) => (
+                <TouchableOpacity
+                  key={task.id}
+                  style={styles.upcomingTask}
+                  onPress={() => router.push("/tasks")}
+                >
+                  <View
+                    style={[
+                      styles.priorityDot,
+                      task.priority === "High"
+                        ? { backgroundColor: "#EF4444" }
+                        : task.priority === "Medium"
+                          ? { backgroundColor: "#F59E0B" }
+                          : { backgroundColor: "#6366F1" },
+                    ]}
+                  />
+                  <View style={styles.upcomingTaskInfo}>
+                    <Text style={styles.upcomingTaskTitle} numberOfLines={1}>
+                      {task.title}
+                    </Text>
+                    <Text style={styles.upcomingTaskDate}>
+                      {formatLongDate(task.dueDate)}
+                      {task.assignee ? ` • ${task.assignee}` : ""}
+                    </Text>
+                  </View>
+                  <View style={styles.statusPill}>
+                    <Text style={styles.statusPillText}>{task.status}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconBg}>
+                <Ionicons name="calendar-outline" size={28} color="#CBD5E1" />
+              </View>
+              <Text style={styles.emptyText}>
+                {tasks.length === 0
+                  ? "NO TASKS YET — ADD ONE FROM THE BOARD"
+                  : "NOTHING SCHEDULED — ENJOY THE CALM"}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Recent wins */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View>
+              <Text style={styles.cardTitle}>Recent wins</Text>
+              <Text style={styles.cardSubtitle}>LATEST COMPLETIONS</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.viewAllBtn}
+              onPress={() => router.push("/stats")}
+            >
+              <Text style={styles.viewAllText}>INSIGHTS</Text>
+              <Ionicons name="chevron-forward" size={14} color="#6366F1" />
+            </TouchableOpacity>
+          </View>
+          {recentDone.length > 0 ? (
+            <View style={styles.activityList}>
+              {recentDone.map((task) => (
+                <View key={task.id} style={styles.activityRow}>
+                  <View style={styles.winIcon}>
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={18}
+                      color="#16A34A"
+                    />
+                  </View>
+                  <Text style={styles.activityText} numberOfLines={1}>
+                    {task.title}
+                  </Text>
+                  <Text style={styles.winDate}>
+                    {formatLongDate(task.dueDate)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconBg}>
+                <Ionicons name="pulse-outline" size={28} color="#CBD5E1" />
+              </View>
+              <Text style={styles.emptyText}>
+                {tasks.length === 0
+                  ? "FINISH A TASK TO LOG YOUR FIRST WIN"
+                  : "NO WINS YET — KEEP GOING"}
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyCta}
+                onPress={() => router.push("/tasks")}
+              >
+                <Text style={styles.emptyCtaText}>Go to board</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+        </View>
+      </ScrollView>
+    </RNSafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#F8FAFC",
+  },
+  scrollContent: {
+    paddingBottom: 24,
+  },
+  header: {
+    backgroundColor: "#0F172A",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 50,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  userInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  headerCopy: {
+    gap: 2,
+  },
+  greetingText: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  dateText: {
+    color: "#94A3B8",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  teamRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 3,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#334155",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarText: {
+    color: "#FF007A",
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  roleText: {
+    color: "#94A3B8",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+  },
+  userNameText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  headerIcons: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  iconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#1E293B",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  dot: {
+    position: "absolute",
+    top: 9,
+    right: 11,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#F43F5E",
+    borderWidth: 1.5,
+    borderColor: "#1E293B",
+  },
+  body: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 0,
+  },
+  heroCard: {
+    backgroundColor: "#0F172A",
+    borderRadius: 24,
+    padding: 20,
+    marginTop: -34,
+    marginBottom: 16,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  heroTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  heroCopy: {
+    flex: 1,
+    gap: 5,
+  },
+  heroEyebrow: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#818CF8",
+    letterSpacing: 1,
+  },
+  heroTitle: {
+    fontSize: 23,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  heroSubtitle: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#94A3B8",
+  },
+  heroRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 6,
+    borderColor: "#6366F1",
+    backgroundColor: "#1E293B",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  heroRingValue: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  heroRingLabel: {
+    fontSize: 8,
+    fontWeight: "800",
+    color: "#94A3B8",
+    letterSpacing: 0.8,
+  },
+  heroTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#1E293B",
+    overflow: "hidden",
+    marginTop: 16,
+  },
+  heroFill: {
+    height: "100%",
+    borderRadius: 4,
+    backgroundColor: "#6366F1",
+  },
+  heroActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+  },
+  heroPrimary: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#6366F1",
+    borderRadius: 14,
+    paddingVertical: 12,
+  },
+  heroPrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  heroSecondary: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    paddingVertical: 12,
+  },
+  heroSecondaryText: {
+    color: "#6366F1",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 16,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    gap: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  statIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  statNumber: {
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#94A3B8",
+    letterSpacing: 0.5,
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  cardSubtitle: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#94A3B8",
+    marginTop: 2,
+    letterSpacing: 0.5,
+  },
+  teamBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: "#EEF2FF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  progressRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    marginTop: 16,
+  },
+  progressPercentage: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  progressLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#94A3B8",
+    letterSpacing: 0.5,
+  },
+  quickRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 16,
+  },
+  quickAction: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    paddingVertical: 14,
+    alignItems: "center",
+    gap: 7,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  quickIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  quickLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  attentionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 6,
+  },
+  attentionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  viewAllBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  viewAllText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#6366F1",
+  },
+  upcomingList: {
+    gap: 12,
+    marginTop: 4,
+  },
+  upcomingTask: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 4,
+  },
+  priorityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#6366F1",
+  },
+  statusPill: {
+    backgroundColor: "#F1F5F9",
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  statusPillText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#64748B",
+  },
+  upcomingTaskInfo: {
+    flex: 1,
+  },
+  upcomingTaskTitle: {
+    color: "#1E293B",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  upcomingTaskDate: {
+    color: "#94A3B8",
+    fontSize: 10,
+    marginTop: 3,
+  },
+  activityList: {
+    gap: 12,
+    marginTop: 4,
+  },
+  activityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  activityText: {
+    flex: 1,
+    color: "#64748B",
+    fontSize: 12,
+  },
+  winIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: "#ECFDF5",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  winDate: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#94A3B8",
+  },
+  emptyCta: {
+    marginTop: 12,
+    backgroundColor: "#EEF2FF",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  emptyCtaText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#6366F1",
+  },
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: 24,
+  },
+  emptyIconBg: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: "#F8FAFC",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  emptyText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#CBD5E1",
+    letterSpacing: 0.8,
+  },
+});
