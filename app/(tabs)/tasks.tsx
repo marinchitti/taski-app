@@ -369,7 +369,7 @@ export default function TasksScreen() {
               <Ionicons
                 name="square-outline"
                 size={17}
-                color={viewMode === "kanban" ? "#FFFFFF" : "#64748B"}
+                color={viewMode === "kanban" ? "#000000" : "#64748B"}
               />
             </TouchableOpacity>
             <TouchableOpacity
@@ -385,7 +385,7 @@ export default function TasksScreen() {
               <Ionicons
                 name="list-outline"
                 size={17}
-                color={viewMode === "list" ? "#FFFFFF" : "#64748B"}
+                color={viewMode === "list" ? "#000000" : "#64748B"}
               />
             </TouchableOpacity>
           </View>
@@ -1687,7 +1687,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 4,
     borderRadius: 14,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#E3E7FB",
     borderWidth: 1,
     borderColor: "#E8EDF4",
     marginVertical: 5,
@@ -1700,7 +1700,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   activeViewToggleButton: {
-    backgroundColor: "#111A31",
+    backgroundColor: "#FFFFFF",
   },
   statusTabs: {
     minWidth: "100%",
