@@ -16,9 +16,9 @@ import {
 } from "react-native";
 import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "../../components/icons";
-import { useGroup } from "../../context/group";
 import { useAuth } from "../../context/auth";
-import { getTaskHealth } from "../../lib/stats";
+import { useGroup } from "../../context/group";
+import { formatDisplayDate, getTaskHealth } from "../../lib/stats";
 import {
   createTask,
   loadTasks,
@@ -61,6 +61,11 @@ function getEmptyStateCopy(status: (typeof statusTabs)[number]) {
   if (status === "In Progress") {
     return {
       title: "NO TASKS IN PROGRESS",
+    };
+  }
+  if (status === "Review") {
+    return {
+      title: "NO TASKS IN REVIEW",
     };
   }
   if (status === "Done") {
@@ -147,8 +152,10 @@ export default function TasksScreen() {
     };
 
     void refreshTasks();
-    return subscribeToTasks(user.id, activeTeamId ?? undefined, () =>
-      void refreshTasks(),
+    return subscribeToTasks(
+      user.id,
+      activeTeamId ?? undefined,
+      () => void refreshTasks(),
     );
   }, [user, activeTeamId]);
 
@@ -314,19 +321,10 @@ export default function TasksScreen() {
 
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
-          <View style={styles.headerTitleRow}>
-            <View style={styles.headerIcon}>
-              <Ionicons name="clipboard-outline" size={26} color="#FFFFFF" />
-            </View>
-            <View>
-              <Text style={styles.headerTitle}>TASKS</Text>
-              <Text style={styles.headerSubtitle}>Workspace</Text>
-            </View>
-          </View>
           <TouchableOpacity
             style={styles.addButton}
             onPress={() => openCreateTask()}
-            accessibilityLabel="Add task"
+            accessibilityLabel="Create task"
           >
             <Ionicons name="add" size={16} color="#FFFFFF" />
           </TouchableOpacity>
@@ -497,224 +495,223 @@ export default function TasksScreen() {
               });
             }}
           >
-          <ScrollView
-            ref={boardScrollRef}
-            horizontal
-            scrollEnabled={!isDragging}
-            showsHorizontalScrollIndicator={false}
-            scrollEventThrottle={16}
-            onScroll={(event) =>
-              setScrollOffsetX(event.nativeEvent.contentOffset.x)
-            }
-            contentContainerStyle={styles.boardScroller}
-          >
-            {boardStatuses.map((status) => {
-              const columnTasks = visibleTasks.filter(
-                (task) => task.status === status,
-              );
-              const isDropTarget = activeDropStatus === status;
+            <ScrollView
+              ref={boardScrollRef}
+              horizontal
+              scrollEnabled={!isDragging}
+              showsHorizontalScrollIndicator={false}
+              scrollEventThrottle={16}
+              onScroll={(event) =>
+                setScrollOffsetX(event.nativeEvent.contentOffset.x)
+              }
+              contentContainerStyle={styles.boardScroller}
+            >
+              {boardStatuses.map((status) => {
+                const columnTasks = visibleTasks.filter(
+                  (task) => task.status === status,
+                );
+                const isDropTarget = activeDropStatus === status;
 
-              return (
-                <View
-                  key={status}
-                  style={[
-                    styles.taskBoard,
-                    isDropTarget && styles.activeDropBoard,
-                  ]}
-                  ref={(node) => {
-                    columnRefs.current[status] = node;
-                  }}
-                  onLayout={(event) => {
-                    const { x, width } = event.nativeEvent.layout;
-                    setColumnLayouts((current) => {
-                      const existing = current[status];
-                      return existing?.x === x && existing.width === width
-                        ? current
-                        : { ...current, [status]: { x, width } };
-                    });
-                  }}
-                >
-                  <View style={styles.boardHeader}>
-                    <View style={styles.boardTitleRow}>
-                      <View
-                        style={[
-                          styles.boardStatusDot,
-                          { backgroundColor: getStatusColor(status) },
-                        ]}
-                      />
-                      <Text style={styles.boardTitle}>
-                        {status.toUpperCase()}
-                      </Text>
-                      <Text style={styles.boardCount}>
-                        {columnTasks.length}
-                      </Text>
+                return (
+                  <View
+                    key={status}
+                    style={[
+                      styles.taskBoard,
+                      isDropTarget && styles.activeDropBoard,
+                    ]}
+                    ref={(node) => {
+                      columnRefs.current[status] = node;
+                    }}
+                    onLayout={(event) => {
+                      const { x, width } = event.nativeEvent.layout;
+                      setColumnLayouts((current) => {
+                        const existing = current[status];
+                        return existing?.x === x && existing.width === width
+                          ? current
+                          : { ...current, [status]: { x, width } };
+                      });
+                    }}
+                  >
+                    <View style={styles.boardHeader}>
+                      <View style={styles.boardTitleRow}>
+                        <View
+                          style={[
+                            styles.boardStatusDot,
+                            { backgroundColor: getStatusColor(status) },
+                          ]}
+                        />
+                        <Text style={styles.boardTitle}>
+                          {status.toUpperCase()}
+                        </Text>
+                        <Text style={styles.boardCount}>
+                          {columnTasks.length}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.boardAddButton}
+                        onPress={() => openCreateTask(status)}
+                        accessibilityLabel={`Add task to ${status}`}
+                      >
+                        <Ionicons name="add" size={18} color="#8FA2BE" />
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity
-                      style={styles.boardAddButton}
-                      onPress={() => openCreateTask(status)}
-                      accessibilityLabel={`Add task to ${status}`}
-                    >
-                      <Ionicons name="add" size={18} color="#8FA2BE" />
-                    </TouchableOpacity>
-                  </View>
 
-                  <View style={styles.taskList}>
-                    {columnTasks.length > 0 ? (
-                      columnTasks.map((task) => (
-                        <TaskCard
-                          key={task.id}
-                          task={task}
-                          isDragging={draggingTaskId === task.id}
-                          resolveDropTarget={findDropTarget}
-                          onDragStart={() => {
-                            setDraggingTaskId(task.id);
-                            setActiveDropStatus(task.status);
-                            setIsDragging(true);
-                          }}
-                          onDragMove={(x) => {
-                            const target = findDropTarget(x);
-                            setActiveDropStatus((current) =>
-                              current === target ? current : target,
-                            );
-
-                            // Auto-scroll the board while the finger sits near
-                            // its horizontal edges so cards can be dragged across
-                            // far-apart columns seamlessly.
-                            if (
-                              boardScrollRef.current &&
-                              boardFrame.width > 0
-                            ) {
-                              const edge = 56;
-                              const step = 24;
-                              if (x < boardFrame.x + edge) {
-                                boardScrollRef.current.scrollTo({
-                                  x: Math.max(0, scrollOffsetX - step),
-                                  animated: false,
-                                });
-                              } else if (
-                                x >
-                                boardFrame.x + boardFrame.width - edge
-                              ) {
-                                boardScrollRef.current.scrollTo({
-                                  x: scrollOffsetX + step,
-                                  animated: false,
-                                });
-                              }
-                            }
-                          }}
-                          onDragEnd={(targetStatus) => {
-                            setDraggingTaskId(null);
-                            setActiveDropStatus(null);
-                            setIsDragging(false);
-                            if (
-                              targetStatus &&
-                              targetStatus !== task.status &&
-                              user
-                            ) {
-                              const prevStatus = task.status;
-                              // Optimistically move the card into the target
-                              // column immediately; revert if the write fails.
-                              setTasks((current) =>
-                                current.map((t) =>
-                                  t.id === task.id
-                                    ? { ...t, status: targetStatus }
-                                    : t,
-                                ),
+                    <View style={styles.taskList}>
+                      {columnTasks.length > 0 ? (
+                        columnTasks.map((task) => (
+                          <TaskCard
+                            key={task.id}
+                            task={task}
+                            isDragging={draggingTaskId === task.id}
+                            resolveDropTarget={findDropTarget}
+                            onDragStart={() => {
+                              setDraggingTaskId(task.id);
+                              setActiveDropStatus(task.status);
+                              setIsDragging(true);
+                            }}
+                            onDragMove={(x) => {
+                              const target = findDropTarget(x);
+                              setActiveDropStatus((current) =>
+                                current === target ? current : target,
                               );
-                              updateTask(task.id, {
-                                status: targetStatus,
-                              }).catch(() => {
+
+                              // Auto-scroll the board while the finger sits near
+                              // its horizontal edges so cards can be dragged across
+                              // far-apart columns seamlessly.
+                              if (
+                                boardScrollRef.current &&
+                                boardFrame.width > 0
+                              ) {
+                                const edge = 56;
+                                const step = 24;
+                                if (x < boardFrame.x + edge) {
+                                  boardScrollRef.current.scrollTo({
+                                    x: Math.max(0, scrollOffsetX - step),
+                                    animated: false,
+                                  });
+                                } else if (
+                                  x >
+                                  boardFrame.x + boardFrame.width - edge
+                                ) {
+                                  boardScrollRef.current.scrollTo({
+                                    x: scrollOffsetX + step,
+                                    animated: false,
+                                  });
+                                }
+                              }
+                            }}
+                            onDragEnd={(targetStatus) => {
+                              setDraggingTaskId(null);
+                              setActiveDropStatus(null);
+                              setIsDragging(false);
+                              if (
+                                targetStatus &&
+                                targetStatus !== task.status &&
+                                user
+                              ) {
+                                const prevStatus = task.status;
+                                // Optimistically move the card into the target
+                                // column immediately; revert if the write fails.
                                 setTasks((current) =>
                                   current.map((t) =>
                                     t.id === task.id
-                                      ? { ...t, status: prevStatus }
+                                      ? { ...t, status: targetStatus }
                                       : t,
                                   ),
                                 );
-                                Alert.alert(
-                                  "Unable to move task",
-                                  "Couldn't save the new status. Please try again.",
-                                );
-                              });
+                                updateTask(task.id, {
+                                  status: targetStatus,
+                                }).catch(() => {
+                                  setTasks((current) =>
+                                    current.map((t) =>
+                                      t.id === task.id
+                                        ? { ...t, status: prevStatus }
+                                        : t,
+                                    ),
+                                  );
+                                  Alert.alert(
+                                    "Unable to move task",
+                                    "Couldn't save the new status. Please try again.",
+                                  );
+                                });
+                              }
+                            }}
+                            onEdit={() => openEditTask(task)}
+                            onDelete={() => deleteTask(task)}
+                            onUpdateSubtasks={(subtasks) =>
+                              updateSubtasks(task, subtasks)
                             }
-                          }}
-                          onEdit={() => openEditTask(task)}
-                          onDelete={() => deleteTask(task)}
-                          onUpdateSubtasks={(subtasks) =>
-                            updateSubtasks(task, subtasks)
-                          }
-                        />
-                      ))
-                    ) : (
-                      <View style={styles.emptyCard}>
-                        <Text style={styles.emptyTitle}>
-                          {getEmptyStateCopy(status).title}
-                        </Text>
-                      </View>
-                    )}
+                          />
+                        ))
+                      ) : (
+                        <View style={styles.emptyCard}>
+                          <Text style={styles.emptyTitle}>
+                            {getEmptyStateCopy(status).title}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
-              );
-            })}
-          </ScrollView>
-        </View>
+                );
+              })}
+            </ScrollView>
+          </View>
         ) : (
           <View style={styles.listContainer}>
-            {(activeStatus === "All"
-              ? [...boardStatuses]
-              : [activeStatus]
-            ).map((status) => {
-              const sectionTasks = visibleTasks.filter(
-                (task) => task.status === status,
-              );
+            {(activeStatus === "All" ? [...boardStatuses] : [activeStatus]).map(
+              (status) => {
+                const sectionTasks = visibleTasks.filter(
+                  (task) => task.status === status,
+                );
 
-              return (
-                <View key={status} style={styles.listSection}>
-                  <View style={styles.boardHeader}>
-                    <View style={styles.boardTitleRow}>
-                      <View
-                        style={[
-                          styles.boardStatusDot,
-                          { backgroundColor: getStatusColor(status) },
-                        ]}
-                      />
-                      <Text style={styles.boardTitle}>
-                        {status.toUpperCase()}
-                      </Text>
-                      <Text style={styles.boardCount}>
-                        {sectionTasks.length}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.boardAddButton}
-                      onPress={() => openCreateTask(status)}
-                      accessibilityLabel={`Add task to ${status}`}
-                    >
-                      <Ionicons name="add" size={18} color="#8FA2BE" />
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={styles.taskList}>
-                    {sectionTasks.length > 0 ? (
-                      sectionTasks.map((task) => (
-                        <TaskListRow
-                          key={task.id}
-                          task={task}
-                          onEdit={() => openEditTask(task)}
-                          onDelete={() => deleteTask(task)}
+                return (
+                  <View key={status} style={styles.listSection}>
+                    <View style={styles.boardHeader}>
+                      <View style={styles.boardTitleRow}>
+                        <View
+                          style={[
+                            styles.boardStatusDot,
+                            { backgroundColor: getStatusColor(status) },
+                          ]}
                         />
-                      ))
-                    ) : (
-                      <View style={styles.emptyCard}>
-                        <Text style={styles.emptyTitle}>
-                          {getEmptyStateCopy(status).title}
+                        <Text style={styles.boardTitle}>
+                          {status.toUpperCase()}
+                        </Text>
+                        <Text style={styles.boardCount}>
+                          {sectionTasks.length}
                         </Text>
                       </View>
-                    )}
+                      <TouchableOpacity
+                        style={styles.boardAddButton}
+                        onPress={() => openCreateTask(status)}
+                        accessibilityLabel={`Add task to ${status}`}
+                      >
+                        <Ionicons name="add" size={18} color="#8FA2BE" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.taskList}>
+                      {sectionTasks.length > 0 ? (
+                        sectionTasks.map((task) => (
+                          <TaskListRow
+                            key={task.id}
+                            task={task}
+                            onEdit={() => openEditTask(task)}
+                            onDelete={() => deleteTask(task)}
+                          />
+                        ))
+                      ) : (
+                        <View style={styles.emptyCard}>
+                          <Text style={styles.emptyTitle}>
+                            {getEmptyStateCopy(status).title}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
-              );
-            })}
+                );
+              },
+            )}
           </View>
         )}
       </ScrollView>
@@ -815,7 +812,10 @@ function TaskListRow({
 
         <View style={styles.listRowFooter}>
           <View
-            style={[styles.listRowHealthBadge, { backgroundColor: health.background }]}
+            style={[
+              styles.listRowHealthBadge,
+              { backgroundColor: health.background },
+            ]}
           >
             <Text style={[styles.healthText, { color: health.color }]}>
               {health.label}
@@ -987,7 +987,7 @@ function TaskCard({
             onPress={onDelete}
             accessibilityLabel={`Delete ${task.title}`}
           >
-            <Ionicons name="trash-outline" size={18} color="#F15B76" />
+            <Ionicons name="trash-outline" size={18} color="#FF0000" />
           </TouchableOpacity>
         </View>
       </View>
@@ -999,7 +999,9 @@ function TaskCard({
         </View>
         <View style={styles.detailItem}>
           <Ionicons name="calendar" size={13} color="#8292AA" />
-          <Text style={styles.detailText}>{task.dueDate || "No due date"}</Text>
+          <Text style={styles.detailText}>
+            {formatDisplayDate(task.dueDate) || "No due date"}
+          </Text>
         </View>
       </View>
       <View
@@ -1281,7 +1283,7 @@ function TaskFormModal({
               textAlignVertical="top"
             />
 
-            {/* Initial Status */}
+            {/* Status */}
             <Text style={styles.formLabel}>STATUS</Text>
             <View style={styles.choiceRow}>
               {boardStatuses.map((option) => {
@@ -1291,8 +1293,6 @@ function TaskFormModal({
                     key={option}
                     style={[
                       styles.statusChip,
-                      // Use each status' own board color instead of one shared
-                      // accent so the selected chip matches its column/tab.
                       selected && { backgroundColor: getStatusColor(option) },
                     ]}
                     onPress={() => setStatus(option)}
@@ -1322,9 +1322,6 @@ function TaskFormModal({
                     key={option}
                     style={[
                       styles.priorityChip,
-                      // Tint the selected chip with the priority's own accent so
-                      // Low/Medium/High each get blue/amber/red (previously only
-                      // Medium had a variant and the others went gray).
                       selected && {
                         backgroundColor: accent.background,
                         borderColor: accent.border,
@@ -1388,9 +1385,9 @@ function TaskFormModal({
                   onPress={() => setCalendarOpen((open) => !open)}
                 >
                   <Text style={styles.formSelectText}>
-                    {dueDate || "Select date"}
+                    {formatDisplayDate(dueDate) || "dd/mm/yyyy"}
                   </Text>
-                  <Ionicons name="calendar-outline" size={18} color="#64748B" />
+                  <Ionicons name="calendar" size={18} color="#64748B" />
                 </TouchableOpacity>
                 {calendarOpen ? (
                   <DatePicker
@@ -1496,7 +1493,7 @@ function TaskFormModal({
               disabled={isSaving}
             >
               <Text style={styles.saveButtonText}>
-                {isSaving ? "SAVI" : isEditing ? "UPDATE" : "CREATE"}
+                {isSaving ? "SAVED" : isEditing ? "UPDATE" : "CREATE"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1508,7 +1505,7 @@ function TaskFormModal({
 
 function getPriorityColor(priority: Priority) {
   if (priority === "High") return "#E90909";
-  if (priority === "Medium") return "#F6B84B";
+  if (priority === "Medium") return "#F59E0B";
   return "#5B8DEF";
 }
 
@@ -1624,7 +1621,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 28,
-    backgroundColor: "#111A31",
+    backgroundColor: "#0F172A",
   },
   headerTopRow: {
     flexDirection: "row",
@@ -1635,26 +1632,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 16,
-  },
-  headerIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: "#29344D",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    color: "#FFFFFF",
-    fontSize: 22,
-    fontWeight: "900",
-  },
-  headerSubtitle: {
-    color: "#AAB4C7",
-    fontSize: 11,
-    fontWeight: "800",
-    marginTop: 2,
-    letterSpacing: 0.5,
   },
   addButton: {
     width: 40,
@@ -1670,6 +1647,7 @@ const styles = StyleSheet.create({
   contentContainer: {
     padding: 20,
     paddingBottom: 42,
+    paddingTop: 12,
   },
   searchRow: {
     flexDirection: "row",
@@ -1686,12 +1664,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 13,
-    boxShadow: [{
-      offsetX: 0,
-      offsetY: 2,
-      blurRadius: 5,
-      color: "rgba(21,34,61,0.05)",
-    }],
+    boxShadow: [
+      {
+        offsetX: 0,
+        offsetY: 2,
+        blurRadius: 5,
+        color: "rgba(21,34,61,0.05)",
+      },
+    ],
     elevation: 1,
     marginVertical: 5,
   },
@@ -1739,12 +1719,14 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   activeStatusTab: {
-    boxShadow: [{
-      offsetX: 0,
-      offsetY: 2,
-      blurRadius: 4,
-      color: "rgba(17,26,49,0.15)",
-    }],
+    boxShadow: [
+      {
+        offsetX: 0,
+        offsetY: 2,
+        blurRadius: 4,
+        color: "rgba(17,26,49,0.15)",
+      },
+    ],
     elevation: 2,
   },
   statusTabText: {
@@ -1811,12 +1793,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    boxShadow: [{
-      offsetX: 0,
-      offsetY: 4,
-      blurRadius: 8,
-      color: "rgba(21,34,61,0.12)",
-    }],
+    boxShadow: [
+      {
+        offsetX: 0,
+        offsetY: 4,
+        blurRadius: 8,
+        color: "rgba(21,34,61,0.12)",
+      },
+    ],
     elevation: 4,
   },
   priorityOption: {
@@ -1997,12 +1981,14 @@ const styles = StyleSheet.create({
   draggingCard: {
     zIndex: 1000,
     elevation: 20,
-    boxShadow: [{
-      offsetX: 0,
-      offsetY: 12,
-      blurRadius: 18,
-      color: "rgba(15,23,42,0.25)",
-    }],
+    boxShadow: [
+      {
+        offsetX: 0,
+        offsetY: 12,
+        blurRadius: 18,
+        color: "rgba(15,23,42,0.25)",
+      },
+    ],
     opacity: 0.97,
   },
   taskCardTopRow: {

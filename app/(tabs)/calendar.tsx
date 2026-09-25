@@ -20,7 +20,7 @@ import {
   TaskStatus,
   updateTask,
 } from "../../lib/tasks";
-import { normalizeDueDate } from "../../lib/stats";
+import { formatDisplayDate, normalizeDueDate } from "../../lib/stats";
 
 type CalendarDay = {
   day: number;
@@ -159,17 +159,11 @@ export default function CalendarView() {
     };
   }, [selectedDayDate, tasks, currentDate]);
 
-  const formattedLongDate = useMemo(() => {
-    if (!selectedDayDate) return "";
-    const [y, m, d] = selectedDayDate.split("-").map(Number);
-    const date = new Date(y, m - 1, d);
-    return date.toLocaleDateString("default", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    });
-  }, [selectedDayDate]);
+  // `selectedDayDate` is stored as "YYYY-MM-DD"; render it as "dd/mm/yyyy".
+  const formattedDate = useMemo(
+    () => formatDisplayDate(selectedDayDate),
+    [selectedDayDate],
+  );
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId);
 
@@ -279,7 +273,7 @@ export default function CalendarView() {
             <View>
               <Text style={styles.dayTitle}>DAILY AGENDA</Text>
               <Text style={styles.daySubtitle}>
-                {formattedLongDate.toUpperCase()}
+                {formattedDate}
               </Text>
             </View>
           </View>
@@ -417,7 +411,9 @@ export default function CalendarView() {
                 <View style={styles.intelMetaRow}>
                   <View style={styles.metaBadge}>
                     <Ionicons name="time-outline" size={12} color="#64748B" />
-                    <Text style={styles.metaText}>{selectedTask.dueDate}</Text>
+                    <Text style={styles.metaText}>
+                      {formatDisplayDate(selectedTask.dueDate) || "No due date"}
+                    </Text>
                   </View>
                   <View style={styles.metaBadge}>
                     <View

@@ -197,6 +197,14 @@ export function formatLongDate(value: string | undefined | null): string {
   });
 }
 
+/** "25/09/2026" - day/month/year label used by the app's date displays. */
+export function formatDisplayDate(value: string | undefined | null): string {
+  const key = normalizeDueDate(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return value?.trim() || "";
+  const [y, m, d] = key.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 /** Today as "YYYY-MM-DD" (the storage format used by `tasks.due_date`). */
 export function todayKey(now: Date = new Date()): string {
   const y = now.getFullYear();

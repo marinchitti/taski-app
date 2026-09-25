@@ -13,6 +13,7 @@ import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "../../components/icons";
 import { useAuth } from "../../context/auth";
 import { useGroup } from "../../context/group";
+import { formatDisplayDate } from "../../lib/stats";
 import { loadTasks, subscribeToTasks, Task } from "../../lib/tasks";
 
 export default function HomeScreen() {
@@ -179,7 +180,9 @@ export default function HomeScreen() {
                     <Text style={styles.upcomingTaskTitle} numberOfLines={1}>
                       {task.title}
                     </Text>
-                    <Text style={styles.upcomingTaskDate}>{task.dueDate}</Text>
+                    <Text style={styles.upcomingTaskDate}>
+                      {formatDisplayDate(task.dueDate)}
+                    </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
                 </TouchableOpacity>

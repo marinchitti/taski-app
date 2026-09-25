@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../context/auth";
 import {
   DUE_SOON_DAYS,
+  formatDisplayDate,
   isTaskDone,
   isTaskDueSoon,
   isTaskOverdue,
@@ -51,7 +52,7 @@ function getNotifications(tasks: Task[]): NotificationItem[] {
       notifications.push({
         id: `${task.id}-due-soon`,
         title: "Task due soon",
-        message: `${task.title} is due on ${task.dueDate}.`,
+        message: `${task.title} is due on ${formatDisplayDate(task.dueDate)}.`,
         icon: "time-outline",
         color: "#D97706",
         background: "#FFFBEB",
